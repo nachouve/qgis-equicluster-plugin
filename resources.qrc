@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/plugins/isozonification" >
+        <file>icon.png</file>
+    </qresource>
+</RCC>
