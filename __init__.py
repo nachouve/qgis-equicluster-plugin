@@ -22,7 +22,6 @@
  This script initializes the plugin, making it known to QGIS.
 """
 
-
 # noinspection PyPep8Naming
 def classFactory(iface):  # pylint: disable=invalid-name
     """Load isozonification class from file isozonification.
@@ -31,5 +30,13 @@ def classFactory(iface):  # pylint: disable=invalid-name
     :type iface: QgsInterface
     """
     #
+    print sys.path
+    print os.path.abspath(__file__)
+
+    sys.path.append(os.path.join(os.path.abspath(__file__), 'pygraph'))
+
+    print sys.path
+
+
     from .isozonification import isozonification
     return isozonification(iface)

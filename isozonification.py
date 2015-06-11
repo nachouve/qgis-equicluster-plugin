@@ -28,9 +28,14 @@ import resources_rc
 from isozonification_dialog import isozonificationDialog
 import os.path
 
+import sys
+
 from qgis.core import QgsMapLayerRegistry, QgsMapLayer
 
-from lib.pygraph.classes import  graph
+##TODO How is the proper way to add this library??
+from pygraph.classes import *
+#from pygraph.classes.graph import graph
+
 
 class isozonification:
     """QGIS Plugin Implementation."""
@@ -40,7 +45,9 @@ class isozonification:
     #Layer field to use
     field = None
     #Number of zones to group
-    numZones = 1
+    numZones = 3
+
+    mygraph = None
 
     def myprint(msg):
         print "myprint: [%s]" % msg
@@ -49,6 +56,8 @@ class isozonification:
         index = obj.dlg.layerCBox.currentIndex()
         layer = obj.dlg.layerCBox.itemData(index)
 
+        if not layer:
+            return
         #TODO
         #clean ComboBox first!!!
 
@@ -223,7 +232,13 @@ class isozonification:
         index = self.dlg.attrCBox.currentIndex()
         self.field = self.dlg.attrCBox.itemData(index)
 
-        self.numZones = int(self.dlg.zonesNumLineEdit.text())
+        try:
+            self.numZones = int(self.dlg.zonesNumLineEdit.text())
+        except:
+            pass
+
+        if not self.layer or not self.field or not self.numZones:
+            return
 
         response = QMessageBox.information(self.iface.mainWindow(),"IsoZonification", 
             "%s has %d features.\n \
@@ -231,7 +246,8 @@ class isozonification:
             Mean %f features per zone" % 
             (layer.name(), layer.featureCount(), self.numZones, layer.featureCount()/self.numZones))
 
-
+        # Prepare graph
+        self.mygraph = graph()
 
     def run(self):
         """Run method that performs all the real work"""
