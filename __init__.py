@@ -30,13 +30,6 @@ def classFactory(iface):  # pylint: disable=invalid-name
     :type iface: QgsInterface
     """
     #
-    print sys.path
-    print os.path.abspath(__file__)
-
-    sys.path.append(os.path.join(os.path.abspath(__file__), 'pygraph'))
-
-    print sys.path
-
 
     from .isozonification import isozonification
     return isozonification(iface)

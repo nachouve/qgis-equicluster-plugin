@@ -33,8 +33,9 @@ import sys
 from qgis.core import QgsMapLayerRegistry, QgsMapLayer
 
 ##TODO How is the proper way to add this library??
-from pygraph.classes import *
-#from pygraph.classes.graph import graph
+## Manually install in the python2.7 path:
+## https://github.com/pmatiello/python-graph 
+from pygraph.classes.graph import graph as Graph
 
 
 class isozonification:
@@ -247,7 +248,7 @@ class isozonification:
             (layer.name(), layer.featureCount(), self.numZones, layer.featureCount()/self.numZones))
 
         # Prepare graph
-        self.mygraph = graph()
+        self.mygraph = Graph()
 
     def run(self):
         """Run method that performs all the real work"""
