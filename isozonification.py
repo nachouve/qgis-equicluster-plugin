@@ -30,6 +30,7 @@ import os.path
 
 from qgis.core import QgsMapLayerRegistry, QgsMapLayer
 
+from lib.pygraph.classes import  graph
 
 class isozonification:
     """QGIS Plugin Implementation."""
