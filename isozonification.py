@@ -30,7 +30,7 @@ import os.path
 
 import sys
 
-from qgis.core import QgsMapLayerRegistry, QgsMapLayer
+from qgis.core import QgsMapLayerRegistry, QgsMapLayer, QgsFeatureRequest
 
 ##TODO How is the proper way to add this library??
 ## Manually install in the python2.7 path:
@@ -63,7 +63,7 @@ class isozonification:
         #clean ComboBox first!!!
 
         for field in layer.pendingFields():
-            print "field: %s (%s)" % (field.name(), field.typeName())
+            #print "field: %s (%s)" % (field.name(), field.typeName())
             if field.typeName() == 'Integer': #and layer.geometryType() == QGis.Line:
                obj.dlg.attrCBox.addItem( field.name(), field.name() )
 
@@ -241,14 +241,48 @@ class isozonification:
         if not self.layer or not self.field or not self.numZones:
             return
 
-        response = QMessageBox.information(self.iface.mainWindow(),"IsoZonification", 
-            "%s has %d features.\n \
-            Create %d zones.\n\
-            Mean %f features per zone" % 
-            (layer.name(), layer.featureCount(), self.numZones, layer.featureCount()/self.numZones))
+#         response = QMessageBox.information(self.iface.mainWindow(),"IsoZonification", 
+#             "%s has %d features.\n \
+#             Create %d zones.\n\
+#             Mean %f features per zone" % 
+#             (layer.name(), layer.featureCount(), self.numZones, layer.featureCount()/self.numZones))
 
         # Prepare graph
         self.mygraph = Graph()
+        
+        
+        ## Create Nodes
+        iter = layer.getFeatures()
+        for feat in iter:
+            id = feat.id()
+            value = feat[self.field]
+            
+            self.mygraph.add_node(id, attrs= [('num', value)] )
+        
+        
+        # Create Edges
+        iter = layer.getFeatures()
+        for feat in iter:
+            id = feat.id()
+            value = feat[self.field]
+         
+            print "****** %d *****" % id 
+            print "Field: " + str(value)
+            
+            filter = QgsFeatureRequest().setFilterRect(feat.geometry().boundingBox()).setFlags(QgsFeatureRequest.ExactIntersect)
+            iter2 = layer.getFeatures(filter)
+            for feat2 in iter2:
+                id2 = feat2.id()                
+                if (id != id2):
+                    try:
+                        self.mygraph.add_edge((id, id2))
+                        print "- " + str(id2)
+                    except Exception, e:
+                        #print e
+                        pass
+            
+            
+        
 
     def run(self):
         """Run method that performs all the real work"""

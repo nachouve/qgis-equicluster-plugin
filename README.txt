@@ -1,3 +1,12 @@
+qgis-equicluster-plugin
+=======================
+
+
+Requirements:
+
+python-graph 
+
+
 Plugin Builder Results
 
 Your plugin isozonification was created in:
