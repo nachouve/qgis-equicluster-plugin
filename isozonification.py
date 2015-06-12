@@ -30,13 +30,14 @@ import os.path
 
 import sys
 
-from qgis.core import QgsMapLayerRegistry, QgsMapLayer, QgsFeatureRequest
+from qgis.core import QgsMapLayerRegistry, QgsMapLayer, QgsFeatureRequest, QgsVectorDataProvider
 
 ##TODO How is the proper way to add this library??
 ## Manually install in the python2.7 path:
 ## https://github.com/pmatiello/python-graph 
 from pygraph.classes.graph import graph as Graph
 
+DEBUG = True
 
 class isozonification:
     """QGIS Plugin Implementation."""
@@ -47,6 +48,11 @@ class isozonification:
     field = None
     #Number of zones to group
     numZones = 3
+    
+    ZONES = dict()
+
+    ## TODO. Now the vector layer must have "ZONE_ID" field
+    zone_field = "ZONE_ID"
 
     mygraph = None
 
@@ -54,24 +60,27 @@ class isozonification:
         print "myprint: [%s]" % msg
 
     def guiLoadAttributesOnComboBox(obj):
+        obj.dlg.attrCBox.clear()
+        
         index = obj.dlg.layerCBox.currentIndex()
         layer = obj.dlg.layerCBox.itemData(index)
 
         if not layer:
             return
-        #TODO
-        #clean ComboBox first!!!
 
         for field in layer.pendingFields():
-            #print "field: %s (%s)" % (field.name(), field.typeName())
+            #if DEBUG: print "field: %s (%s)" % (field.name(), field.typeName())
             if field.typeName() == 'Integer': #and layer.geometryType() == QGis.Line:
                obj.dlg.attrCBox.addItem( field.name(), field.name() )
 
 
     def guiLoadLayersOnComboBox(self):
+        
+        self.dlg.attrCBox.clear()
+        
         layers = QgsMapLayerRegistry.instance().mapLayers().values()
         for layer in layers:
-            print "layer: %s" % layer.name()
+            if DEBUG: print "layer: %s" % layer.name()
             if layer.type() == QgsMapLayer.VectorLayer: #and layer.geometryType() == QGis.Line:
                self.dlg.layerCBox.addItem( layer.name(), layer ) 
 
@@ -225,7 +234,218 @@ class isozonification:
         # remove the toolbar
         del self.toolbar
 
+
+    def createGraph(self):
+        """
+        Create the self.mygraph to group
+        
+        Return a list of featureIds
+        """
+        
+        ids = []
+        
+        # Prepare graph
+        self.mygraph = Graph()
+        
+        
+        ## Create Nodes
+        iter = self.layer.getFeatures()
+        for feat in iter:
+            id = feat.id()
+            value = feat[self.field]
+            
+            self.mygraph.add_node(id, attrs= [('event', value)] )
+            
+            ids.append(id)
+        
+        
+        # Create Edges
+        iter = self.layer.getFeatures()
+        for feat in iter:
+            id = feat.id()
+            value = feat[self.field]
+         
+            if DEBUG: print "****** %d *****" % id 
+            if DEBUG: print "Field: " + str(value)
+            
+            filter = QgsFeatureRequest().setFlags(QgsFeatureRequest.ExactIntersect).setFilterRect(feat.geometry().boundingBox())
+            iter2 = self.layer.getFeatures(filter)
+            for feat2 in iter2:
+                id2 = feat2.id()                
+                if (id != id2):
+                    try:
+                        self.mygraph.add_edge((id, id2))
+                        if DEBUG: print "- " + str(id2)
+                    except Exception, e:
+                        #if DEBUG: print e
+                        pass
+        return ids
+    
+    def getRealNodeOrder(self, feat_id, possible_ids):
+        curr_order = 0
+        neighbors = [] 
+        for i in self.mygraph.neighbors(feat_id):
+            if i in possible_ids:
+                neighbors.append(i)
+        
+        return len(set(neighbors))
+                    
+    def getNextFeat(self, possible_ids, not_zero_order=True):
+        """
+        "not_zero_order" to avoid isles
+        """
+        selected_id = None
+        min_order = -1
+        
+        if possible_ids == None or len(possible_ids) ==0:
+            print "No more possible features"
+            return None
+        
+        for feat_id in possible_ids:
+            curr_order = self.getRealNodeOrder(feat_id, possible_ids)
+            if DEBUG: print "ReadNodeOrder(%d): %d" % (feat_id, curr_order)
+            if not_zero_order and curr_order == 0:
+                continue
+            if selected_id == None or curr_order < min_order:
+                selected_id = feat_id
+                min_order = curr_order
+        if (selected_id and min_order):
+            if DEBUG: print "Next feat: %d (%d)" % (selected_id, min_order)
+        else:
+            if DEBUG: print "ERRRRRORRRRRRRRR (getNextFeat): "
+            if DEBUG: print "    selected_id:" + str(selected_id)
+            if DEBUG: print "    min_order:" + str(min_order)
+            
+        return selected_id
+    
+    def summatory(self):
+        sum = 0
+        iter = self.layer.getFeatures()
+        for feat in iter:
+            id = feat.id()
+            sum += int(feat[self.field])
+        return sum
+    
+    def check_if_zone_complete(self, zone):
+        TOLERANCE = 0.8
+        
+        if DEBUG: print "zone event_count: %d (%d) " % (zone["event_count"], self.MEAN_EVENTS_PER_ZONE)
+        
+        if (float(zone["event_count"])/self.MEAN_EVENTS_PER_ZONE) > TOLERANCE:
+            return True
+        
+        return False
+
+
+    def resetField(self, layer, fieldName):
+        caps = self.layer.dataProvider().capabilities()
+        if caps & QgsVectorDataProvider.ChangeAttributeValues:
+            attrs = { layer.fieldNameIndex (fieldName) : None }
+            iter = layer.getFeatures()
+            for feat in iter:
+                id = feat.id()
+                layer.dataProvider().changeAttributeValues({ id : attrs })
+
+    def getAdjacents(self, zone, possible_feats=None):
+        
+        adj_list = list()
+        
+        for i in zone["features"]:
+            neighborgs = self.mygraph    .neighbors(i)
+            if DEBUG: print "features [%d] has %d neighbors" % (i, len(neighborgs))
+            adj_list.extend(neighborgs)
+            
+        #if DEBUG: print "   Possible_feats:"
+        #if DEBUG: print str(possible_feats)
+        
+        new_adj_list = []
+        adj_list = list(set(adj_list))
+        
+        if DEBUG: print "Current adj_list: " + str(adj_list)
+        
+        if possible_feats:
+            for i in adj_list:
+                #if DEBUG: print "Checking %d" % i
+                if i in possible_feats:
+                    new_adj_list.append(i)
+                #else:
+                #    if DEBUG: print "Remove adjacent (already in zone): " + str(i)
+        else:
+            new_adj_list = adj_list
+        return new_adj_list
+    
+    
+    def getMinorZone(self, adjacents):
+        
+        min_event_count = None
+        min_zone = None
+        adjacent_zones = list()
+        for i in self.ZONES:
+            if DEBUG: print "Zone: " + str(i)
+            zone_feats = self.ZONES[i]["features"]
+            for a in adjacents:
+                if a in zone_feats:
+                    adjacent_zones.append(i)
+                    zone_event_count = self.ZONES[i]["event_count"]
+                    if (min_event_count == None) or zone_event_count < min_event_count:
+                        min_event_count = zone_event_count 
+                        min_zone = i
+                    break
+        return min_zone
+    
+    def assignFeat2Zone(self, feat_id, event_value, zone_id):
+        caps = self.layer.dataProvider().capabilities()
+
+        if caps & QgsVectorDataProvider.ChangeAttributeValues:
+            attrs = {self.layer.fieldNameIndex ( self.zone_field) : zone_id }
+            self.layer.dataProvider().changeAttributeValues({ feat_id : attrs })
+            
+            if zone_id in self.ZONES:
+                old_features = self.ZONES[zone_id]["features"]
+                old_event_count = self.ZONES[zone_id]["event_count"]
+                old_features.append(feat_id) 
+                self.ZONES[zone_id] = { "features": old_features, "event_count": event_value+old_event_count }
+            else:
+                self.ZONES[zone_id] = { "features": [feat_id], "event_count": event_value }
+            
+            if DEBUG: print "assignFeat2Zone Zone: %s  --> %s " % (str(zone_id), str(self.ZONES[zone_id]))
+    
+    def assignIsle(self, feat_id, value):
+        
+        zone = {"features": [feat_id]}
+        
+        adjacents = self.getAdjacents(zone)
+        
+        if DEBUG: print "Isle can be assign to: " + str(adjacents)
+        
+        zone_to_assign = self.getMinorZone(adjacents)
+        
+        if DEBUG: print "Min Adjacent Zone: %s" % str(zone_to_assign)
+        
+        self.assignFeat2Zone(feat_id, value, zone_to_assign)
+        
+        
+        
+    
+    def check_isles(self):
+        """
+        Assign isle features to a zone
+        """
+        print "\n====================================="
+        if DEBUG: print "Checking isles..."
+        iter = self.layer.getFeatures()
+        for feat in iter:
+            id = feat.id()
+            value = feat[self.field]
+            zone = feat[self.zone_field]
+            if (zone == None):
+                if DEBUG: print "Feat [%d] is a isle" % id
+                self.assignIsle(id, value)
+
     def doSomethingUtil(self):
+        
+        self.ZONES = dict()
+        
         index = self.dlg.layerCBox.currentIndex()
         layer = self.dlg.layerCBox.itemData(index)
         self.layer = layer
@@ -240,49 +460,92 @@ class isozonification:
 
         if not self.layer or not self.field or not self.numZones:
             return
-
+        
 #         response = QMessageBox.information(self.iface.mainWindow(),"IsoZonification", 
 #             "%s has %d features.\n \
 #             Create %d zones.\n\
 #             Mean %f features per zone" % 
 #             (layer.name(), layer.featureCount(), self.numZones, layer.featureCount()/self.numZones))
 
-        # Prepare graph
-        self.mygraph = Graph()
+        free_feats = self.createGraph()
+        if DEBUG: print free_feats
+        
+        self.resetField(self.layer, self.zone_field)
+        
+        ZONE_COUNT = 0
         
         
-        ## Create Nodes
-        iter = layer.getFeatures()
-        for feat in iter:
-            id = feat.id()
-            value = feat[self.field]
+        self.MEAN_FEAT_PER_ZONE = layer.featureCount()/self.numZones
+        self.MEAN_EVENTS_PER_ZONE = self.summatory()/self.numZones
+        
+        print "MEAN_FEAT_PER_ZONE: %d" % self.MEAN_FEAT_PER_ZONE
+        print "MEAN_EVENTS_PER_ZONE: %d" % self.MEAN_EVENTS_PER_ZONE
+        
+        MAX_ITERATIONS = 500
+        
+        ##############################
+        ## FIRST ELEMENT
+        ### ToDo sort by Cardinality and numerical
+        
+        active_feat_id = self.getNextFeat(free_feats)
+        
+        ##############################
+        
+        iteration_count = 0
+        
+        while ZONE_COUNT < self.numZones and \
+              len(free_feats) > 0 and \
+              iteration_count < MAX_ITERATIONS:
+                        
+            if DEBUG: print "> Active ID: %s" % str(active_feat_id)
+            if DEBUG: print "free_feats:"
+            if DEBUG: print str(free_feats)
             
-            self.mygraph.add_node(id, attrs= [('num', value)] )
-        
-        
-        # Create Edges
-        iter = layer.getFeatures()
-        for feat in iter:
-            id = feat.id()
-            value = feat[self.field]
-         
-            print "****** %d *****" % id 
-            print "Field: " + str(value)
+            if active_feat_id == None:
+                if DEBUG: print "active_feat_id NONE"
+                break
             
-            filter = QgsFeatureRequest().setFilterRect(feat.geometry().boundingBox()).setFlags(QgsFeatureRequest.ExactIntersect)
-            iter2 = layer.getFeatures(filter)
-            for feat2 in iter2:
-                id2 = feat2.id()                
-                if (id != id2):
-                    try:
-                        self.mygraph.add_edge((id, id2))
-                        print "- " + str(id2)
-                    except Exception, e:
-                        #print e
-                        pass
+            event_value = self.mygraph.node_attributes(active_feat_id)
+            event_value = event_value[0][1]
+            if DEBUG: print "event value: " + str(event_value)
             
             
+            ## TODO Change to method --> http://lists.osgeo.org/pipermail/qgis-developer/2013-October/028808.html
         
+            self.assignFeat2Zone(active_feat_id, event_value, ZONE_COUNT)
+            if DEBUG: print ">>>>>>>>> ADDED %d to ZONE [%d]" % (active_feat_id, ZONE_COUNT)
+            
+            if active_feat_id in free_feats:
+                if DEBUG: print "Remove [%d] from free_feat list " % active_feat_id
+                free_feats.remove(active_feat_id)
+        
+            if self.check_if_zone_complete(self.ZONES[ZONE_COUNT]):
+                ZONE_COUNT += 1
+                if DEBUG: print "*************** NEW ZONE %d **************" % ZONE_COUNT
+                active_feat_id = self.getNextFeat(free_feats)
+            else:
+                adjacents = self.getAdjacents(self.ZONES[ZONE_COUNT], free_feats)
+                if DEBUG: print "Adjacents: " + str(adjacents)
+            
+                active_feat_id = self.getNextFeat(adjacents)
+                    
+            
+            iteration_count += 1
+            
+        
+        self.check_isles()
+        
+        self.print_zones()
+        
+    def print_zones(self):
+        print "\n====================================="
+        for zone in self.ZONES:
+            print "\nZONE %s" % str(zone)
+            print "---------------------"
+            print "Features: " + str(self.ZONES[zone]["features"])
+            print "Count: " + str(self.ZONES[zone]["event_count"])
+            
+            
 
     def run(self):
         """Run method that performs all the real work"""
