@@ -37,10 +37,15 @@ from qgis.core import QgsMapLayerRegistry, QgsMapLayer, QgsFeatureRequest, QgsVe
 ## https://github.com/pmatiello/python-graph 
 from pygraph.classes.graph import graph as Graph
 
-DEBUG = 2
+from random import random
+
+DEBUG = 0
 
 class isozonification:
-    """QGIS Plugin Implementation."""
+    """QGIS Plugin Implementation
+
+    Algorithm has a random component, so it can be differents results between executions
+    """
 
     #Layer to process
     layer = None
@@ -76,7 +81,7 @@ class isozonification:
 
     def guiLoadLayersOnComboBox(self):
         
-        self.dlg.attrCBox.clear()
+        self.dlg.layerCBox.clear()
         
         layers = QgsMapLayerRegistry.instance().mapLayers().values()
         for layer in layers:
@@ -253,11 +258,8 @@ class isozonification:
         for feat in iter:
             id = feat.id()
             value = feat[self.field]
-            
-            self.mygraph.add_node(id, attrs= [('event', value)] )
-            
+            self.mygraph.add_node(id, attrs= [('event', value), ('geom',feat.geometry().centroid())] )
             ids.append(id)
-        
         
         # Create Edges
         iter = self.layer.getFeatures()
@@ -266,17 +268,17 @@ class isozonification:
             geom1 = feat1.geometry()
             value = feat1[self.field]
          
-            if DEBUG: print "****** %d *****" % id1
-            if DEBUG: print "Field: " + str(value)
+            if DEBUG>0: print "****** %d *****" % id1
+            if DEBUG>0: print "Field: " + str(value)
             
             filter2 = QgsFeatureRequest().setFilterRect(geom1.buffer(10, 4).boundingBox())
             iter2 = self.layer.getFeatures(filter2)
             for feat2 in iter2:
                 id2 = feat2.id()
                 if (id1 != id2):
-                    dist = geom1.distance(feat2.geometry())
-                    print "Check id2: %d (%.3f)" % (id2,dist)
-                    if dist > 0.01:
+                    touches = geom1.touches(feat2.geometry())
+                    #if DEBUG>1: print "Check id2: %d (%.3f)" % (id2,dist)
+                    if not touches:
                         continue
                     try:
                         self.mygraph.add_edge((id1, id2))
@@ -295,18 +297,11 @@ class isozonification:
                 neighbors.append(i)
         
         return len(set(neighbors))
-                    
-    def getNextFeat(self, possible_ids, free_feats, not_zero_order=True):
-        """
-        "not_zero_order" to avoid isles
-        """
+
+    def getMinorOrderFeat(self, possible_ids, free_feats, not_zero_order=True):
         selected_id = None
-        min_order = -1
-        
-        if possible_ids == None or len(possible_ids) ==0:
-            print "No more possible features"
-            return None
-        
+        min_order = -1        
+
         for feat_id in possible_ids:
             curr_order = self.getRealNodeOrder(feat_id, free_feats)
             if DEBUG>1: print "RealNodeOrder(%d): %d" % (feat_id, curr_order)
@@ -315,13 +310,70 @@ class isozonification:
             if selected_id == None or curr_order < min_order:
                 selected_id = feat_id
                 min_order = curr_order
+        
+
         if (selected_id and min_order):
             if DEBUG: print "Next feat: %d (%d)" % (selected_id, min_order)
         else:
             if DEBUG: print "ERRRRRORRRRRRRRR (getNextFeat): "
             if DEBUG: print "    selected_id:" + str(selected_id)
             if DEBUG: print "    min_order:" + str(min_order)
-            
+        
+        return selected_id
+
+    def getNearest(self, current_zone_id, possible_ids):
+        selected_id = None
+        min_dist = -1
+
+        zone_feats = self.ZONES[current_zone_id]["features"]
+        for possible_id in possible_ids:
+            node_attributes = self.mygraph.node_attributes(possible_id)
+            geom1 = node_attributes[1][1]
+            if DEBUG>5: print "    nearest geom1:" + str(geom1.exportToWkt())
+            dist = 0
+            for zone_feat_id in zone_feats:
+                node_attributes = self.mygraph.node_attributes(zone_feat_id)
+                geom2 = node_attributes[1][1]
+                dist += geom1.distance(geom2)
+                if DEBUG>5: print "    nearest geom2:" + str(geom2.exportToWkt())
+            if selected_id == None or dist < min_dist:
+                selected_id = possible_id
+                min_dist = dist
+
+        return selected_id
+                    
+    def getNextFeat(self, current_zone_id, possible_ids, free_feats, not_zero_order=True):
+        """
+        "not_zero_order" to avoid isles
+        """
+        WEIGHT_MINORDER = 15
+
+        #Get getting a new one
+        WEIGHT_RANDOM = 70
+
+        if possible_ids == None or len(possible_ids) ==0:
+            print "No more possible features"
+            return None
+        
+        minor_order_id = self.getMinorOrderFeat(possible_ids, free_feats, not_zero_order=True)
+        
+        if len(self.ZONES)>current_zone_id:
+            nearest_id = self.getNearest(current_zone_id, possible_ids)
+        else:
+            nearest_id = minor_order_id
+        
+        selected_id = None
+        if int(random()*100) < WEIGHT_MINORDER:
+            selected_id = minor_order_id
+        else:
+            selected_id = nearest_id
+
+        if (len(possible_ids) == len(free_feats)):
+            ## New zone
+            if int(random()*100) < WEIGHT_RANDOM:
+                random_idx = int(random()*100)%len(possible_ids)
+                selected_id = possible_ids[random_idx]
+
         return selected_id
     
     def summatory(self):
@@ -333,7 +385,7 @@ class isozonification:
         return sum
     
     def check_if_zone_complete(self, zone):
-        TOLERANCE = 0.8
+        TOLERANCE = 0.85
         
         if DEBUG: print "zone event_count: %d (%d) " % (zone["event_count"], self.MEAN_EVENTS_PER_ZONE)
         
@@ -357,7 +409,7 @@ class isozonification:
         adj_list = list()
         
         for i in zone["features"]:
-            neighborgs = self.mygraph    .neighbors(i)
+            neighborgs = self.mygraph.neighbors(i)
             if DEBUG > 1: print "features [%d] has %d neighbors" % (i, len(neighborgs))
             adj_list.extend(neighborgs)
             
@@ -381,22 +433,32 @@ class isozonification:
         return new_adj_list
     
     
-    def getMinorZone(self, adjacents):
+    def getMinorZone(self, adjacents=None, exclude_zones=[]):
         
         min_event_count = None
         min_zone = None
         adjacent_zones = list()
-        for i in self.ZONES:
+        for i in self.ZONES:            
             if DEBUG: print "Zone: " + str(i)
+            if i in exclude_zones:
+                if DEBUG: print "Excluded: " + str(i)
+                continue
             zone_feats = self.ZONES[i]["features"]
-            for a in adjacents:
-                if a in zone_feats:
-                    adjacent_zones.append(i)
-                    zone_event_count = self.ZONES[i]["event_count"]
-                    if (min_event_count == None) or zone_event_count < min_event_count:
-                        min_event_count = zone_event_count 
-                        min_zone = i
-                    break
+            if adjacents:
+                for a in adjacents:
+                    if a in zone_feats:
+                        adjacent_zones.append(i)
+                        zone_event_count = self.ZONES[i]["event_count"]
+                        if (min_event_count == None) or zone_event_count < min_event_count:
+                            min_event_count = zone_event_count 
+                            min_zone = i
+                        break
+            else:
+                zone_event_count = self.ZONES[i]["event_count"]
+                if (min_event_count == None) or zone_event_count < min_event_count:
+                    min_event_count = zone_event_count 
+                    min_zone = i
+
         return min_zone
     
     def assignFeat2Zone(self, feat_id, event_value, zone_id):
@@ -414,7 +476,7 @@ class isozonification:
             else:
                 self.ZONES[zone_id] = { "features": [feat_id], "event_count": event_value }
             
-            if DEBUG: print "assignFeat2Zone Zone: %s  --> %s " % (str(zone_id), str(self.ZONES[zone_id]))
+            if DEBUG: print "assignFeat2Zone feat [%s] Zone: %s  --> %s " % (str(feat_id),str(zone_id), str(self.ZONES[zone_id]))
         
         self.iface.mapCanvas().refresh() #nothing happened
         self.layer.triggerRepaint()
@@ -434,8 +496,11 @@ class isozonification:
         if DEBUG: print "Min Adjacent Zone: %s" % str(zone_to_assign)
         
         if zone_to_assign != None:
-            self.assignFeat2Zone(feat_id, value, zone_to_assign)
-            free_feats.remove(feat_id)
+            if feat_id in free_feats:
+                self.assignFeat2Zone(feat_id, value, zone_to_assign)
+                free_feats.remove(feat_id)
+            else:
+                if DEBUG: print "Hummmm. %s already assigned" % str(feat_id) 
         else:
             if DEBUG: print "Skip this assignment"     
         
@@ -502,7 +567,7 @@ class isozonification:
         ## FIRST ELEMENT
         ### ToDo sort by Cardinality and numerical
         
-        active_feat_id = self.getNextFeat(free_feats, free_feats)
+        active_feat_id = self.getNextFeat(ZONE_COUNT, free_feats, free_feats)
         
         ##############################
         
@@ -522,8 +587,8 @@ class isozonification:
                 if DEBUG: print "active_feat_id NONE"
                 break
             
-            event_value = self.mygraph.node_attributes(active_feat_id)
-            event_value = event_value[0][1]
+            node_attributes = self.mygraph.node_attributes(active_feat_id)
+            event_value = node_attributes[0][1]
             if DEBUG: print "event value: " + str(event_value)
             
             
@@ -545,7 +610,7 @@ class isozonification:
                 if DEBUG: print "Adjacents: " + str(adjacents)
             
             if adjacents and len(adjacents) > 0:
-                active_feat_id = self.getNextFeat(adjacents, free_feats)
+                active_feat_id = self.getNextFeat(ZONE_COUNT, adjacents, free_feats)
 
             if active_feat_id == None:
                 if DEBUG: print "No NextFeat(Adjacents): " + str(active_feat_id)
@@ -554,30 +619,63 @@ class isozonification:
             if zone_completed:
                 ZONE_COUNT += 1
                 if DEBUG: print "*************** NEW ZONE %d **************" % ZONE_COUNT
-                active_feat_id = self.getNextFeat(free_feats, free_feats)
+                active_feat_id = self.getNextFeat(ZONE_COUNT, free_feats, free_feats)
             
             iteration_count += 1
         
         
         print "\n====================================="
         iteration_count = 0
+        #Used to exclude zones without free adjacents
+        exclude_zones = []
+
+        free_feats = []
+        iter = self.layer.getFeatures()
+        for feat in iter:
+            value = feat[self.zone_field]
+            if (value == None):
+                fid = feat.id()
+                free_feats.append(fid)
+
+        global DEBUG
         while len(free_feats) > 0 and \
               iteration_count < MAX_ITERATIONS:
+            DEBUG = 4
             if DEBUG: print " --- (Isle) Iteration %s --" % str(iteration_count)
             if DEBUG: print "len(free_feats): " + str(len(free_feats))
-            self.check_isles(free_feats)
+            
+            min_zone = self.getMinorZone(exclude_zones=exclude_zones)
+
+            DEBUG = 1
+            print "Min zone: " + str(min_zone)
+            min_zone_adjacents = self.getAdjacents(self.ZONES[min_zone],possible_feats=free_feats)
+            if len(min_zone_adjacents)>0:
+                ##self.check_isles(min_zone_adjacents)
+                DEBUG = 3
+                selected_id = self.getNextFeat(min_zone, min_zone_adjacents, free_feats)
+                if selected_id != None:
+                    node_attributes = self.mygraph.node_attributes(selected_id)
+                    event_value = node_attributes[0][1]
+                    self.assignFeat2Zone(selected_id, event_value, min_zone)
+                    free_feats.remove(selected_id)
+            else:
+                print "Excluded: " + str(exclude_zones)
+                exclude_zones.append(min_zone)
             iteration_count += 1
         
         self.print_zones()
         
     def print_zones(self):
         print "\n====================================="
+        summary = ""
         for zone in self.ZONES:
-            print "\nZONE %s" % str(zone)
-            print "---------------------"
-            print "Features: " + str(self.ZONES[zone]["features"])
-            print "Count: " + str(self.ZONES[zone]["event_count"])
-            
+            summary += "\n** ZONE %s **" % str(zone)
+            #summary += "\n---------------------"
+            summary += "\nFeatures: " + str(self.ZONES[zone]["features"])
+            summary += "\nNum Features: " + str(len(self.ZONES[zone]["features"]))
+            summary += "\nCount: " + str(self.ZONES[zone]["event_count"])
+        print summary
+        QMessageBox.information(self.iface.mainWindow(),"IsoZonification", summary)
             
 
     def run(self):
