@@ -37,7 +37,7 @@ from qgis.core import QgsMapLayerRegistry, QgsMapLayer, QgsFeatureRequest, QgsVe
 ## https://github.com/pmatiello/python-graph 
 from pygraph.classes.graph import graph as Graph
 
-DEBUG = True
+DEBUG = 2
 
 class isozonification:
     """QGIS Plugin Implementation."""
@@ -261,36 +261,42 @@ class isozonification:
         
         # Create Edges
         iter = self.layer.getFeatures()
-        for feat in iter:
-            id = feat.id()
-            value = feat[self.field]
+        for feat1 in iter:
+            id1 = feat1.id()
+            geom1 = feat1.geometry()
+            value = feat1[self.field]
          
-            if DEBUG: print "****** %d *****" % id 
+            if DEBUG: print "****** %d *****" % id1
             if DEBUG: print "Field: " + str(value)
             
-            filter = QgsFeatureRequest().setFlags(QgsFeatureRequest.ExactIntersect).setFilterRect(feat.geometry().boundingBox())
-            iter2 = self.layer.getFeatures(filter)
+            filter2 = QgsFeatureRequest().setFilterRect(geom1.buffer(10, 4).boundingBox())
+            iter2 = self.layer.getFeatures(filter2)
             for feat2 in iter2:
-                id2 = feat2.id()                
-                if (id != id2):
+                id2 = feat2.id()
+                if (id1 != id2):
+                    dist = geom1.distance(feat2.geometry())
+                    print "Check id2: %d (%.3f)" % (id2,dist)
+                    if dist > 0.01:
+                        continue
                     try:
-                        self.mygraph.add_edge((id, id2))
+                        self.mygraph.add_edge((id1, id2))
                         if DEBUG: print "- " + str(id2)
                     except Exception, e:
-                        #if DEBUG: print e
+                        if DEBUG: print e
                         pass
         return ids
     
     def getRealNodeOrder(self, feat_id, possible_ids):
         curr_order = 0
         neighbors = [] 
+        if DEBUG>1: print "%d has %d neighbors" % (feat_id, len(self.mygraph.neighbors(feat_id)))
         for i in self.mygraph.neighbors(feat_id):
             if i in possible_ids:
                 neighbors.append(i)
         
         return len(set(neighbors))
                     
-    def getNextFeat(self, possible_ids, not_zero_order=True):
+    def getNextFeat(self, possible_ids, free_feats, not_zero_order=True):
         """
         "not_zero_order" to avoid isles
         """
@@ -302,7 +308,7 @@ class isozonification:
             return None
         
         for feat_id in possible_ids:
-            curr_order = self.getRealNodeOrder(feat_id, possible_ids)
+            curr_order = self.getRealNodeOrder(feat_id, free_feats)
             if DEBUG>1: print "RealNodeOrder(%d): %d" % (feat_id, curr_order)
             if not_zero_order and curr_order == 0:
                 continue
@@ -410,12 +416,12 @@ class isozonification:
             
             if DEBUG: print "assignFeat2Zone Zone: %s  --> %s " % (str(zone_id), str(self.ZONES[zone_id]))
         
-        #self.iface.mapCanvas().refresh() #nothing happened
+        self.iface.mapCanvas().refresh() #nothing happened
         self.layer.triggerRepaint()
         #response = QMessageBox.information(self.iface.mainWindow(),"IsoZonification", "Refreshed")
 
     
-    def assignIsle(self, feat_id, value):
+    def assignIsle(self, feat_id, value, free_feats):
         
         zone = {"features": [feat_id]}
         
@@ -427,14 +433,18 @@ class isozonification:
         
         if DEBUG: print "Min Adjacent Zone: %s" % str(zone_to_assign)
         
-        self.assignFeat2Zone(feat_id, value, zone_to_assign)
+        if zone_to_assign != None:
+            self.assignFeat2Zone(feat_id, value, zone_to_assign)
+            free_feats.remove(feat_id)
+        else:
+            if DEBUG: print "Skip this assignment"     
         
     
-    def check_isles(self):
+    def check_isles(self, free_feats):
         """
         Assign isle features to a zone
         """
-        print "\n====================================="
+        
         if DEBUG: print "Checking isles..."
         iter = self.layer.getFeatures()
         for feat in iter:
@@ -443,12 +453,10 @@ class isozonification:
             zone = feat[self.zone_field]
             if (zone == None):
                 if DEBUG: print "Feat [%d] is a isle" % id
-                self.assignIsle(id, value)
+                self.assignIsle(id, value, free_feats)
 
 
-    def doSomethingUtil(self):
-        
-        self.resetField(self.layer, self.zone_field)
+    def doSomethingUtil(self):        
 
         self.ZONES = dict()
         
@@ -465,6 +473,7 @@ class isozonification:
             pass
 
         if not self.layer or not self.field or not self.numZones:
+            print "not self.layer or not self.field or not self.numZones"
             return
         
 #         response = QMessageBox.information(self.iface.mainWindow(),"IsoZonification", 
@@ -472,6 +481,8 @@ class isozonification:
 #             Create %d zones.\n\
 #             Mean %f features per zone" % 
 #             (layer.name(), layer.featureCount(), self.numZones, layer.featureCount()/self.numZones))
+
+        self.resetField(self.layer, self.zone_field)
 
         free_feats = self.createGraph()
         if DEBUG: print free_feats
@@ -485,13 +496,13 @@ class isozonification:
         print "MEAN_FEAT_PER_ZONE: %d" % self.MEAN_FEAT_PER_ZONE
         print "MEAN_EVENTS_PER_ZONE: %d" % self.MEAN_EVENTS_PER_ZONE
         
-        MAX_ITERATIONS = 500
+        MAX_ITERATIONS = 50
         
         ##############################
         ## FIRST ELEMENT
         ### ToDo sort by Cardinality and numerical
         
-        active_feat_id = self.getNextFeat(free_feats)
+        active_feat_id = self.getNextFeat(free_feats, free_feats)
         
         ##############################
         
@@ -500,7 +511,9 @@ class isozonification:
         while ZONE_COUNT < self.numZones and \
               len(free_feats) > 0 and \
               iteration_count < MAX_ITERATIONS:
-                        
+            
+            if DEBUG: print " --- Iteration %s --" % str(iteration_count)
+
             if DEBUG: print "> Active ID: %s" % str(active_feat_id)
             if DEBUG: print "free_feats:"
             if DEBUG: print str(free_feats)
@@ -532,7 +545,7 @@ class isozonification:
                 if DEBUG: print "Adjacents: " + str(adjacents)
             
             if adjacents and len(adjacents) > 0:
-                active_feat_id = self.getNextFeat(adjacents)
+                active_feat_id = self.getNextFeat(adjacents, free_feats)
 
             if active_feat_id == None:
                 if DEBUG: print "No NextFeat(Adjacents): " + str(active_feat_id)
@@ -541,12 +554,19 @@ class isozonification:
             if zone_completed:
                 ZONE_COUNT += 1
                 if DEBUG: print "*************** NEW ZONE %d **************" % ZONE_COUNT
-                active_feat_id = self.getNextFeat(free_feats)
+                active_feat_id = self.getNextFeat(free_feats, free_feats)
             
             iteration_count += 1
-            
         
-        self.check_isles()
+        
+        print "\n====================================="
+        iteration_count = 0
+        while len(free_feats) > 0 and \
+              iteration_count < MAX_ITERATIONS:
+            if DEBUG: print " --- (Isle) Iteration %s --" % str(iteration_count)
+            if DEBUG: print "len(free_feats): " + str(len(free_feats))
+            self.check_isles(free_feats)
+            iteration_count += 1
         
         self.print_zones()
         
