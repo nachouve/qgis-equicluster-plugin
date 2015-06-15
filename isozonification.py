@@ -38,6 +38,7 @@ from qgis.core import QgsMapLayerRegistry, QgsMapLayer, QgsFeatureRequest, QgsVe
 from pygraph.classes.graph import graph as Graph
 
 from random import random
+from operator import itemgetter, attrgetter, methodcaller
 
 DEBUG = 0
 
@@ -268,8 +269,8 @@ class isozonification:
             geom1 = feat1.geometry()
             value = feat1[self.field]
          
-            if DEBUG>0: print "****** %d *****" % id1
-            if DEBUG>0: print "Field: " + str(value)
+            if DEBUG>4: print "****** %d *****" % id1
+            if DEBUG>4: print "Field: " + str(value)
             
             filter2 = QgsFeatureRequest().setFilterRect(geom1.buffer(10, 4).boundingBox())
             iter2 = self.layer.getFeatures(filter2)
@@ -277,14 +278,14 @@ class isozonification:
                 id2 = feat2.id()
                 if (id1 != id2):
                     touches = geom1.touches(feat2.geometry())
-                    #if DEBUG>1: print "Check id2: %d (%.3f)" % (id2,dist)
+                    #if DEBUG>5: print "Check id2: %d (%.3f)" % (id2,dist)
                     if not touches:
                         continue
                     try:
                         self.mygraph.add_edge((id1, id2))
-                        if DEBUG: print "- " + str(id2)
+                        if DEBUG>5: print "- " + str(id2)
                     except Exception, e:
-                        if DEBUG: print e
+                        if DEBUG>5: print e
                         pass
         return ids
     
@@ -297,29 +298,40 @@ class isozonification:
                 neighbors.append(i)
         
         return len(set(neighbors))
-
-    def getMinorOrderFeat(self, possible_ids, free_feats, not_zero_order=True):
-        selected_id = None
-        min_order = -1        
-
+    
+    
+    def getMinorOrderList(self, possible_ids, free_feats, not_zero_order=True):
+        ordered_possible_ids = []
+        
         for feat_id in possible_ids:
             curr_order = self.getRealNodeOrder(feat_id, free_feats)
             if DEBUG>1: print "RealNodeOrder(%d): %d" % (feat_id, curr_order)
             if not_zero_order and curr_order == 0:
                 continue
-            if selected_id == None or curr_order < min_order:
-                selected_id = feat_id
-                min_order = curr_order
+            ordered_possible_ids.append((feat_id, curr_order))
         
+        ordered_possible_ids = sorted(ordered_possible_ids, key=itemgetter(1))
+        return ordered_possible_ids
 
-        if (selected_id and min_order):
-            if DEBUG: print "Next feat: %d (%d)" % (selected_id, min_order)
-        else:
-            if DEBUG: print "ERRRRRORRRRRRRRR (getNextFeat): "
-            if DEBUG: print "    selected_id:" + str(selected_id)
-            if DEBUG: print "    min_order:" + str(min_order)
+    def getFarthest(self, possible_ids):
+        selected_id = None
+        max_dist = -1
+        
+        for zone_id in self.ZONES:
+            ## Just get 1 feat (speed)
+            zone_feat = self.ZONES[zone_id]["features"][0]
+            node_attributes = self.mygraph.node_attributes(zone_feat)
+            geom1 = node_attributes[1][1]
+            for feat_id in possible_ids:
+                node_attributes = self.mygraph.node_attributes(feat_id)
+                geom2 = node_attributes[1][1]
+                dist = geom1.distance(geom2)
+                if selected_id == None or dist > max_dist:
+                    selected_id = feat_id
+                    max_dist = dist
         
         return selected_id
+        
 
     def getNearest(self, current_zone_id, possible_ids):
         selected_id = None
@@ -346,33 +358,65 @@ class isozonification:
         """
         "not_zero_order" to avoid isles
         """
-        WEIGHT_MINORDER = 15
-
+        if DEBUG: print "Select NextFeat for zone: " + str(current_zone_id)
+        WEIGHT_MINORDER = 10
         #Get getting a new one
-        WEIGHT_RANDOM = 70
+        WEIGHT_RANDOM = 30
+        
+        minor_order_id = None 
+        neasert_id = None
+        farthest_id = None
 
         if possible_ids == None or len(possible_ids) ==0:
             print "No more possible features"
             return None
         
-        minor_order_id = self.getMinorOrderFeat(possible_ids, free_feats, not_zero_order=True)
+        minor_order_ids = self.getMinorOrderList(possible_ids, free_feats, not_zero_order)
+        
+        if len(minor_order_ids)>0:
+            minor_order_id = minor_order_ids[0][0]
+        else:
+            if DEBUG: print "ERRRRRORRRRRRRRR (getNextFeat): "
+            if DEBUG: print "    minor_order_id:" + str(None)
+        
+        minor_order_ids = minor_order_ids[0:(1+len(minor_order_ids))/2]
+        minor_order_ids = [i[0] for i in minor_order_ids]
+        farthest_id = self.getFarthest(minor_order_ids)
         
         if len(self.ZONES)>current_zone_id:
             nearest_id = self.getNearest(current_zone_id, possible_ids)
         else:
-            nearest_id = minor_order_id
+            nearest_id = farthest_id
         
         selected_id = None
         if int(random()*100) < WEIGHT_MINORDER:
             selected_id = minor_order_id
+            if DEBUG: print "Selected Minor_id: " + str(selected_id)
         else:
             selected_id = nearest_id
+            if DEBUG: print "Selected Nearest_id: " + str(selected_id)
 
         if (len(possible_ids) == len(free_feats)):
             ## New zone
             if int(random()*100) < WEIGHT_RANDOM:
                 random_idx = int(random()*100)%len(possible_ids)
                 selected_id = possible_ids[random_idx]
+                if DEBUG: print "Selected random_id: " + str(selected_id)
+            elif (farthest_id != None):
+                selected_id = farthest_id
+                if DEBUG: print "Selected Farthest_id: " + str(selected_id)
+                
+        if selected_id == None:
+            if DEBUG: print "All nulls [nearest_id, minor_order_id, farthest_id]: " + str([nearest_id, minor_order_id, farthest_id])
+            if nearest_id != None:
+                selected_id = nearest_id
+                if DEBUG: print "ReSelected nearest_id: " + str(selected_id)
+            if minor_order_id != None:
+                selected_id = minor_order_id
+                if DEBUG: print "ReSelected Minor_id: " + str(selected_id)
+            if farthest_id != None:
+                selected_id = farthest_id
+                if DEBUG: print "ReSelected farthest_id: " + str(selected_id)
 
         return selected_id
     
@@ -413,7 +457,7 @@ class isozonification:
             if DEBUG > 1: print "features [%d] has %d neighbors" % (i, len(neighborgs))
             adj_list.extend(neighborgs)
             
-        #if DEBUG: print "   Possible_feats:"
+        #if DEBUG: print "Possible_feats:"
         #if DEBUG: print str(possible_feats)
         
         new_adj_list = []
@@ -482,44 +526,6 @@ class isozonification:
         self.layer.triggerRepaint()
         #response = QMessageBox.information(self.iface.mainWindow(),"IsoZonification", "Refreshed")
 
-    
-    def assignIsle(self, feat_id, value, free_feats):
-        
-        zone = {"features": [feat_id]}
-        
-        adjacents = self.getAdjacents(zone)
-        
-        if DEBUG: print "Isle can be assign to: " + str(adjacents)
-        
-        zone_to_assign = self.getMinorZone(adjacents)
-        
-        if DEBUG: print "Min Adjacent Zone: %s" % str(zone_to_assign)
-        
-        if zone_to_assign != None:
-            if feat_id in free_feats:
-                self.assignFeat2Zone(feat_id, value, zone_to_assign)
-                free_feats.remove(feat_id)
-            else:
-                if DEBUG: print "Hummmm. %s already assigned" % str(feat_id) 
-        else:
-            if DEBUG: print "Skip this assignment"     
-        
-    
-    def check_isles(self, free_feats):
-        """
-        Assign isle features to a zone
-        """
-        
-        if DEBUG: print "Checking isles..."
-        iter = self.layer.getFeatures()
-        for feat in iter:
-            id = feat.id()
-            value = feat[self.field]
-            zone = feat[self.zone_field]
-            if (zone == None):
-                if DEBUG: print "Feat [%d] is a isle" % id
-                self.assignIsle(id, value, free_feats)
-
 
     def doSomethingUtil(self):        
 
@@ -541,11 +547,10 @@ class isozonification:
             print "not self.layer or not self.field or not self.numZones"
             return
         
-#         response = QMessageBox.information(self.iface.mainWindow(),"IsoZonification", 
-#             "%s has %d features.\n \
-#             Create %d zones.\n\
-#             Mean %f features per zone" % 
-#             (layer.name(), layer.featureCount(), self.numZones, layer.featureCount()/self.numZones))
+        response = QMessageBox.information(self.iface.mainWindow(),"IsoZonification", 
+            "%s has %d features.\n \
+            Mean %.2f features per zone (%d zones)" % 
+            (layer.name(), layer.featureCount(), float(layer.featureCount())/self.numZones,  self.numZones))
 
         self.resetField(self.layer, self.zone_field)
 
@@ -561,7 +566,7 @@ class isozonification:
         print "MEAN_FEAT_PER_ZONE: %d" % self.MEAN_FEAT_PER_ZONE
         print "MEAN_EVENTS_PER_ZONE: %d" % self.MEAN_EVENTS_PER_ZONE
         
-        MAX_ITERATIONS = 50
+        MAX_ITERATIONS = layer.featureCount()+10
         
         ##############################
         ## FIRST ELEMENT
@@ -580,8 +585,7 @@ class isozonification:
             if DEBUG: print " --- Iteration %s --" % str(iteration_count)
 
             if DEBUG: print "> Active ID: %s" % str(active_feat_id)
-            if DEBUG: print "free_feats:"
-            if DEBUG: print str(free_feats)
+            if DEBUG>2: print "free_feats:" + str(free_feats)
             
             if active_feat_id == None:
                 if DEBUG: print "active_feat_id NONE"
@@ -594,12 +598,12 @@ class isozonification:
             
             ## TODO Change to method --> http://lists.osgeo.org/pipermail/qgis-developer/2013-October/028808.html
         
-            self.assignFeat2Zone(active_feat_id, event_value, ZONE_COUNT)
-            if DEBUG: print ">>>>>>>>> ADDED %d to ZONE [%d]" % (active_feat_id, ZONE_COUNT)
-            
-            if active_feat_id in free_feats:
-                if DEBUG: print "Remove [%d] from free_feat list " % active_feat_id
+            if active_feat_id in free_feats:        
+                self.assignFeat2Zone(active_feat_id, event_value, ZONE_COUNT)
+                if DEBUG: print ">>>>>>>>> ADDED %d to ZONE [%d]" % (active_feat_id, ZONE_COUNT)
+                            
                 free_feats.remove(active_feat_id)
+                if DEBUG: print "Remove [%d] from free_feat list " % active_feat_id
         
             zone_completed = self.check_if_zone_complete(self.ZONES[ZONE_COUNT])
             has_adjacents = False
@@ -611,6 +615,8 @@ class isozonification:
             
             if adjacents and len(adjacents) > 0:
                 active_feat_id = self.getNextFeat(ZONE_COUNT, adjacents, free_feats)
+            else:
+                active_feat_id = None
 
             if active_feat_id == None:
                 if DEBUG: print "No NextFeat(Adjacents): " + str(active_feat_id)
@@ -618,16 +624,17 @@ class isozonification:
 
             if zone_completed:
                 ZONE_COUNT += 1
+                if DEBUG: print "******************************************" 
                 if DEBUG: print "*************** NEW ZONE %d **************" % ZONE_COUNT
                 active_feat_id = self.getNextFeat(ZONE_COUNT, free_feats, free_feats)
             
             iteration_count += 1
         
         
-        print "\n====================================="
+        print "\n===============  ISLES ======================"
         iteration_count = 0
         #Used to exclude zones without free adjacents
-        exclude_zones = []
+        not_use_zones = []
 
         free_feats = []
         iter = self.layer.getFeatures()
@@ -640,18 +647,21 @@ class isozonification:
         global DEBUG
         while len(free_feats) > 0 and \
               iteration_count < MAX_ITERATIONS:
-            DEBUG = 4
+            iteration_count += 1
+            #DEBUG = 4
             if DEBUG: print " --- (Isle) Iteration %s --" % str(iteration_count)
             if DEBUG: print "len(free_feats): " + str(len(free_feats))
             
-            min_zone = self.getMinorZone(exclude_zones=exclude_zones)
+            min_zone = self.getMinorZone(exclude_zones=not_use_zones)
 
-            DEBUG = 1
-            print "Min zone: " + str(min_zone)
-            min_zone_adjacents = self.getAdjacents(self.ZONES[min_zone],possible_feats=free_feats)
+            #DEBUG = 1
+            if DEBUG: print "Min zone: " + str(min_zone)
+            if (min_zone == None):
+                continue
+            min_zone_adjacents = self.getAdjacents(self.ZONES[min_zone], possible_feats=free_feats)
             if len(min_zone_adjacents)>0:
                 ##self.check_isles(min_zone_adjacents)
-                DEBUG = 3
+                #DEBUG = 3
                 selected_id = self.getNextFeat(min_zone, min_zone_adjacents, free_feats)
                 if selected_id != None:
                     node_attributes = self.mygraph.node_attributes(selected_id)
@@ -659,9 +669,8 @@ class isozonification:
                     self.assignFeat2Zone(selected_id, event_value, min_zone)
                     free_feats.remove(selected_id)
             else:
-                print "Excluded: " + str(exclude_zones)
-                exclude_zones.append(min_zone)
-            iteration_count += 1
+                if DEBUG: print "Excluded: " + str(not_use_zones)
+                not_use_zones.append(min_zone)
         
         self.print_zones()
         
@@ -669,11 +678,10 @@ class isozonification:
         print "\n====================================="
         summary = ""
         for zone in self.ZONES:
-            summary += "\n** ZONE %s **" % str(zone)
-            #summary += "\n---------------------"
-            summary += "\nFeatures: " + str(self.ZONES[zone]["features"])
-            summary += "\nNum Features: " + str(len(self.ZONES[zone]["features"]))
-            summary += "\nCount: " + str(self.ZONES[zone]["event_count"])
+            summary += "\nZONE %s: %d eventos (%d features)" % (str(zone), self.ZONES[zone]["event_count"], len(self.ZONES[zone]["features"]))
+        summary += "\n---------------------" 
+        for zone in self.ZONES:
+            summary += "\n Zone %d features: %s" % (zone, str(sorted(self.ZONES[zone]["features"])).replace('L',''))
         print summary
         QMessageBox.information(self.iface.mainWindow(),"IsoZonification", summary)
             
