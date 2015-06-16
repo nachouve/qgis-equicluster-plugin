@@ -9,8 +9,8 @@ python-graph
 
 Plugin Builder Results
 
-Your plugin isozonification was created in:
-    /home/uve/devel_test/qgis-zonification/isozonification
+Your plugin equicluster was created in:
+    /home/uve/devel_test/qgis-zonification/equicluster
 
 Your QGIS plugin directory is located at:
     /home/uve/.qgis2/python/plugins
@@ -26,11 +26,11 @@ What's Next:
 
   * Test the plugin by enabling it in the QGIS plugin manager
 
-  * Customize it by editing the implementation file: ``isozonification.py``
+  * Customize it by editing the implementation file: ``equicluster.py``
 
   * Create your own custom icon, replacing the default icon.png
 
-  * Modify your user interface by opening isozonification.ui in Qt Designer
+  * Modify your user interface by opening equicluster.ui in Qt Designer
 
   * You can use the Makefile to compile your Ui and resource files when
     you make changes. This requires GNU make (gmake)

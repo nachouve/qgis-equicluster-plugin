@@ -18,7 +18,7 @@ from PyQt4.QtGui import QIcon
 
 
 
-class isozonificationDialogTest(unittest.TestCase):
+class equiclusterDialogTest(unittest.TestCase):
     """Test rerources work."""
 
     def setUp(self):
@@ -31,12 +31,12 @@ class isozonificationDialogTest(unittest.TestCase):
 
     def test_icon_png(self):
         """Test we can click OK."""
-        path = ':/plugins/isozonification/icon.png'
+        path = ':/plugins/equicluster/icon.png'
         icon = QIcon(path)
         self.assertFalse(icon.isNull())
 
 if __name__ == "__main__":
-    suite = unittest.makeSuite(isozonificationResourcesTest)
+    suite = unittest.makeSuite(equiclusterResourcesTest)
     runner = unittest.TextTestRunner(verbosity=2)
     runner.run(suite)
 

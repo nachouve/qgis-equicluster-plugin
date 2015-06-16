@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 /***************************************************************************
- isozonification
+ equicluster
                                  A QGIS plugin
  Divide in zones/clusters of polygons using an attrinbute
                               -------------------
@@ -25,7 +25,7 @@ from PyQt4.QtGui import QAction, QIcon, QMessageBox
 # Initialize Qt resources from file resources.py
 import resources_rc
 # Import the code for the dialog
-from isozonification_dialog import isozonificationDialog
+from equicluster_dialog import equiclusterDialog
 import os.path
 
 import sys
@@ -42,7 +42,7 @@ from operator import itemgetter, attrgetter, methodcaller
 
 DEBUG = 0
 
-class isozonification:
+class equicluster:
     """QGIS Plugin Implementation
 
     Algorithm has a random component, so it can be differents results between executions
@@ -110,7 +110,7 @@ class isozonification:
         locale_path = os.path.join(
             self.plugin_dir,
             'i18n',
-            'isozonification_{}.qm'.format(locale))
+            'equicluster_{}.qm'.format(locale))
 
         if os.path.exists(locale_path):
             self.translator = QTranslator()
@@ -120,14 +120,14 @@ class isozonification:
                 QCoreApplication.installTranslator(self.translator)
 
         # Create the dialog (after translation) and keep reference
-        self.dlg = isozonificationDialog()
+        self.dlg = equiclusterDialog()
 
         # Declare instance attributes
         self.actions = []
-        self.menu = self.tr(u'&isozonification')
+        self.menu = self.tr(u'&equicluster')
         # TODO: We are going to let the user set this up in a future iteration
-        self.toolbar = self.iface.addToolBar(u'isozonification')
-        self.toolbar.setObjectName(u'isozonification')
+        self.toolbar = self.iface.addToolBar(u'equicluster')
+        self.toolbar.setObjectName(u'equicluster')
 
 
     # noinspection PyMethodMayBeStatic
@@ -143,7 +143,7 @@ class isozonification:
         :rtype: QString
         """
         # noinspection PyTypeChecker,PyArgumentList,PyCallByClass
-        return QCoreApplication.translate('isozonification', message)
+        return QCoreApplication.translate('equicluster', message)
 
 
     def add_action(
@@ -222,10 +222,10 @@ class isozonification:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
-        icon_path = ':/plugins/isozonification/icon.png'
+        icon_path = ':/plugins/equicluster/icon.png'
         self.add_action(
             icon_path,
-            text=self.tr(u'Iso Zonification'),
+            text=self.tr(u'EquiCluster'),
             callback=self.run,
             parent=self.iface.mainWindow())
 
@@ -234,7 +234,7 @@ class isozonification:
         """Removes the plugin menu item and icon from QGIS GUI."""
         for action in self.actions:
             self.iface.removePluginMenu(
-                self.tr(u'&isozonification'),
+                self.tr(u'&equicluster'),
                 action)
             self.iface.removeToolBarIcon(action)
         # remove the toolbar
@@ -524,7 +524,7 @@ class isozonification:
         
         self.iface.mapCanvas().refresh() #nothing happened
         self.layer.triggerRepaint()
-        #response = QMessageBox.information(self.iface.mainWindow(),"IsoZonification", "Refreshed")
+        #response = QMessageBox.information(self.iface.mainWindow(),"EquiCluster", "Refreshed")
 
 
     def doSomethingUtil(self):        
@@ -547,7 +547,7 @@ class isozonification:
             print "not self.layer or not self.field or not self.numZones"
             return
         
-        response = QMessageBox.information(self.iface.mainWindow(),"IsoZonification", 
+        response = QMessageBox.information(self.iface.mainWindow(),"EquiCluster", 
             "%s has %d features.\n \
             Mean %.2f features per zone (%d zones)" % 
             (layer.name(), layer.featureCount(), float(layer.featureCount())/self.numZones,  self.numZones))
@@ -683,7 +683,7 @@ class isozonification:
         for zone in self.ZONES:
             summary += "\n Zone %d features: %s" % (zone, str(sorted(self.ZONES[zone]["features"])).replace('L',''))
         print summary
-        QMessageBox.information(self.iface.mainWindow(),"IsoZonification", summary)
+        QMessageBox.information(self.iface.mainWindow(),"EquiCluster", summary)
             
 
     def run(self):

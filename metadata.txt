@@ -7,7 +7,7 @@
 # This file should be included when you package your plugin.# Mandatory items:
 
 [general]
-name=isozonification
+name=equicluster
 qgisMinimumVersion=2.0
 description=Divide in zones/clusters of polygons using an attrinbute
 version=0.1

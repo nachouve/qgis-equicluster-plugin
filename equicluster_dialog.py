@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 /***************************************************************************
- isozonificationDialog
+ equiclusterDialog
                                  A QGIS plugin
  Divide in zones/clusters of polygons using an attrinbute
                              -------------------
@@ -26,13 +26,13 @@ import os
 from PyQt4 import QtGui, uic
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
-    os.path.dirname(__file__), 'isozonification_dialog_base.ui'))
+    os.path.dirname(__file__), 'equicluster_dialog_base.ui'))
 
 
-class isozonificationDialog(QtGui.QDialog, FORM_CLASS):
+class equiclusterDialog(QtGui.QDialog, FORM_CLASS):
     def __init__(self, parent=None):
         """Constructor."""
-        super(isozonificationDialog, self).__init__(parent)
+        super(equiclusterDialog, self).__init__(parent)
         # Set up the user interface from Designer.
         # After setupUI you can access any designer object by doing
         # self.<objectname>, and you can use autoconnect slots - see

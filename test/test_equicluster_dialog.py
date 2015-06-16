@@ -16,18 +16,18 @@ import unittest
 
 from PyQt4.QtGui import QDialogButtonBox, QDialog
 
-from isozonification_dialog import isozonificationDialog
+from equicluster_dialog import equiclusterDialog
 
 from utilities import get_qgis_app
 QGIS_APP = get_qgis_app()
 
 
-class isozonificationDialogTest(unittest.TestCase):
+class equiclusterDialogTest(unittest.TestCase):
     """Test dialog works."""
 
     def setUp(self):
         """Runs before each test."""
-        self.dialog = isozonificationDialog(None)
+        self.dialog = equiclusterDialog(None)
 
     def tearDown(self):
         """Runs after each test."""
@@ -49,7 +49,7 @@ class isozonificationDialogTest(unittest.TestCase):
         self.assertEqual(result, QDialog.Rejected)
 
 if __name__ == "__main__":
-    suite = unittest.makeSuite(isozonificationDialogTest)
+    suite = unittest.makeSuite(equiclusterDialogTest)
     runner = unittest.TextTestRunner(verbosity=2)
     runner.run(suite)
 

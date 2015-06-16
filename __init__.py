@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 /***************************************************************************
- isozonification
+ equicluster
                                  A QGIS plugin
  Divide in zones/clusters of polygons using an attrinbute
                              -------------------
@@ -24,12 +24,12 @@
 
 # noinspection PyPep8Naming
 def classFactory(iface):  # pylint: disable=invalid-name
-    """Load isozonification class from file isozonification.
+    """Load equicluster class from file equicluster.
 
     :param iface: A QGIS interface instance.
     :type iface: QgsInterface
     """
     #
 
-    from .isozonification import isozonification
-    return isozonification(iface)
+    from .equicluster import equicluster
+    return equicluster(iface)

@@ -1,5 +1,5 @@
 #/***************************************************************************
-# isozonification
+# equicluster
 #
 # Divide in zones/clusters of polygons using an attrinbute
 #							 -------------------
@@ -38,17 +38,17 @@ LOCALES =
 # translation
 SOURCES = \
 	__init__.py \
-	isozonification.py \
-	isozonification_dialog.py
+	equicluster.py \
+	equicluster_dialog.py
 
-PLUGINNAME = isozonification
+PLUGINNAME = equicluster
 
 PY_FILES = \
-	isozonification.py \
-	isozonification_dialog.py \
+	equicluster.py \
+	equicluster_dialog.py \
 	__init__.py
 
-UI_FILES = isozonification_dialog_base.ui
+UI_FILES = equicluster_dialog_base.ui
 
 EXTRAS = icon.png metadata.txt
 
