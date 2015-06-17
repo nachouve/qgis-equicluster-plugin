@@ -32,11 +32,6 @@ import sys
 
 from qgis.core import QgsMapLayerRegistry, QgsMapLayer, QgsFeatureRequest, QgsVectorDataProvider
 
-##TODO How is the proper way to add this library??
-## Manually install in the python2.7 path:
-## https://github.com/pmatiello/python-graph 
-from pygraph.classes.graph import graph as Graph
-
 from random import random
 from operator import itemgetter, attrgetter, methodcaller
 
@@ -248,10 +243,15 @@ class equicluster:
         Return a list of featureIds
         """
         
+        ##TODO How is the proper way to add this library??
+        ## Manually install in the python2.7 path:
+        ## https://github.com/pmatiello/python-graph 
+        from pygraph.classes.graph import graph
+        
         ids = []
         
         # Prepare graph
-        self.mygraph = Graph()
+        self.mygraph = graph()
         
         
         ## Create Nodes
@@ -547,10 +547,19 @@ class equicluster:
             print "not self.layer or not self.field or not self.numZones"
             return
         
-        response = QMessageBox.information(self.iface.mainWindow(),"EquiCluster", 
-            "%s has %d features.\n \
-            Mean %.2f features per zone (%d zones)" % 
-            (layer.name(), layer.featureCount(), float(layer.featureCount())/self.numZones,  self.numZones))
+        if not self.zone_field in map(lambda x: x.name(), self.layer.dataProvider().fields()):
+            msg = "ERROR: Layer must have a [%s] field (numeric).\n" % self.zone_field 
+            response = QMessageBox.information(self.iface.mainWindow(),
+                                           "EquiCluster", 
+                                           msg)
+            return
+
+        
+        msg = "%s has %d features.\n" % layer.name() 
+        msg += "Mean %.2f features per zone (%d zones)" % (layer.featureCount(), float(layer.featureCount())/self.numZones,  self.numZones)
+        response = QMessageBox.information(self.iface.mainWindow(),
+                                           "EquiCluster", 
+                                           msg)
 
         self.resetField(self.layer, self.zone_field)
 
@@ -688,6 +697,36 @@ class equicluster:
 
     def run(self):
         """Run method that performs all the real work"""
+
+        ##############################################
+        def check_module():
+            ## Check if module required exists 
+            try:
+                __import__("pygraph")
+            except ImportError:
+                msg = "ERROR: [pygraph] not found!!\n"
+                msg += "Please, install pygraph in QGis python and restart QGis"
+                QMessageBox.information(self.iface.mainWindow(),"EquiCluster", msg)
+                return False
+            else:
+                return True
+        
+        import sys, os
+        #print "OLD PATH:"
+        #print sys.path
+        
+        current_path = os.path.dirname(os.path.abspath(__file__))
+        if not current_path in sys.path:
+            sys.path.append(current_path)
+        
+        is_import_correct = check_module()
+        
+        #print "NEW PATH:"
+        #print sys.path
+        
+        if not is_import_correct:
+            return
+        ##############################################
 
         self.guiLoadLayersOnComboBox()
         self.guiLoadAttributesOnComboBox()
