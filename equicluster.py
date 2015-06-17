@@ -555,8 +555,8 @@ class equicluster:
             return
 
         
-        msg = "%s has %d features.\n" % layer.name() 
-        msg += "Mean %.2f features per zone (%d zones)" % (layer.featureCount(), float(layer.featureCount())/self.numZones,  self.numZones)
+        msg = "%s has %d features.\n" % (layer.name(), layer.featureCount()) 
+        msg += "Mean %.2f features per zone (%d zones)" % (float(layer.featureCount())/self.numZones,  self.numZones)
         response = QMessageBox.information(self.iface.mainWindow(),
                                            "EquiCluster", 
                                            msg)
