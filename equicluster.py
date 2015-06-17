@@ -49,6 +49,8 @@ class equicluster:
     field = None
     #Number of zones to group
     numZones = 3
+    # Percentage to change zone
+    TOLERANCE = 0.85
     
     ZONES = dict()
 
@@ -428,12 +430,11 @@ class equicluster:
             sum += int(feat[self.field])
         return sum
     
-    def check_if_zone_complete(self, zone):
-        TOLERANCE = 0.85
+    def check_if_zone_complete(self, value):
         
-        if DEBUG: print "zone event_count: %d (%d) " % (zone["event_count"], self.MEAN_EVENTS_PER_ZONE)
+        if DEBUG: print "zone event_count: %d (%d) " % (value, self.MEAN_EVENTS_PER_ZONE)
         
-        if (float(zone["event_count"])/self.MEAN_EVENTS_PER_ZONE) > TOLERANCE:
+        if (float(value)/self.MEAN_EVENTS_PER_ZONE) > self.TOLERANCE:
             return True
         
         return False
@@ -505,7 +506,7 @@ class equicluster:
 
         return min_zone
     
-    def assignFeat2Zone(self, feat_id, event_value, zone_id):
+    def assignFeat2Zone(self, feat_id, event_value, zone_id, free_feats):
         caps = self.layer.dataProvider().capabilities()
 
         if caps & QgsVectorDataProvider.ChangeAttributeValues:
@@ -521,6 +522,9 @@ class equicluster:
                 self.ZONES[zone_id] = { "features": [feat_id], "event_count": event_value }
             
             if DEBUG: print "assignFeat2Zone feat [%s] Zone: %s  --> %s " % (str(feat_id),str(zone_id), str(self.ZONES[zone_id]))
+            free_feats.remove(feat_id)
+            if DEBUG: print "Remove [%d] from free_feat list " % feat_id
+
         
         self.iface.mapCanvas().refresh() #nothing happened
         self.layer.triggerRepaint()
@@ -554,32 +558,44 @@ class equicluster:
                                            msg)
             return
 
+        self.resetField(self.layer, self.zone_field)
+
+        self.MEAN_FEAT_PER_ZONE = float(layer.featureCount())/self.numZones
+        self.MEAN_EVENTS_PER_ZONE = self.summatory()/self.numZones
         
-        msg = "%s has %d features.\n" % (layer.name(), layer.featureCount()) 
-        msg += "Mean %.2f features per zone (%d zones)" % (float(layer.featureCount())/self.numZones,  self.numZones)
+        print "MEAN_FEAT_PER_ZONE: %d" % self.MEAN_FEAT_PER_ZONE
+        print "MEAN_EVENTS_PER_ZONE: %d" % self.MEAN_EVENTS_PER_ZONE
+        
+        msg = "%s has %d features \n" % (layer.name(), layer.featureCount()) 
+        msg += "Mean %.2f features per zone (%d zones) \n" % (self.MEAN_FEAT_PER_ZONE, self.numZones)
+        msg += "Mean %.2f events per zone (>%.2f)" % (self.MEAN_EVENTS_PER_ZONE, (self.MEAN_EVENTS_PER_ZONE * self.TOLERANCE))
         response = QMessageBox.information(self.iface.mainWindow(),
                                            "EquiCluster", 
                                            msg)
-
-        self.resetField(self.layer, self.zone_field)
 
         free_feats = self.createGraph()
         if DEBUG: print free_feats
         
         ZONE_COUNT = 0
         
-        
-        self.MEAN_FEAT_PER_ZONE = layer.featureCount()/self.numZones
-        self.MEAN_EVENTS_PER_ZONE = self.summatory()/self.numZones
-        
-        print "MEAN_FEAT_PER_ZONE: %d" % self.MEAN_FEAT_PER_ZONE
-        print "MEAN_EVENTS_PER_ZONE: %d" % self.MEAN_EVENTS_PER_ZONE
-        
         MAX_ITERATIONS = layer.featureCount()+10
         
         ##############################
-        ## FIRST ELEMENT
-        ### ToDo sort by Cardinality and numerical
+        ## FIRST: Assign zones to features with events higher than mean 
+        
+        iter = self.layer.getFeatures()
+        for feat in iter:
+            event_value = feat[self.field]
+            if (self.check_if_zone_complete(event_value)):
+                fid = feat.id()
+                self.assignFeat2Zone(fid, event_value, ZONE_COUNT, free_feats)
+                ZONE_COUNT += 1
+        
+        ##############################        
+        
+        
+        ##############################
+        ## SECOND: FIRST ELEMENT
         
         active_feat_id = self.getNextFeat(ZONE_COUNT, free_feats, free_feats)
         
@@ -608,13 +624,10 @@ class equicluster:
             ## TODO Change to method --> http://lists.osgeo.org/pipermail/qgis-developer/2013-October/028808.html
         
             if active_feat_id in free_feats:        
-                self.assignFeat2Zone(active_feat_id, event_value, ZONE_COUNT)
+                self.assignFeat2Zone(active_feat_id, event_value, ZONE_COUNT, free_feats)
                 if DEBUG: print ">>>>>>>>> ADDED %d to ZONE [%d]" % (active_feat_id, ZONE_COUNT)
-                            
-                free_feats.remove(active_feat_id)
-                if DEBUG: print "Remove [%d] from free_feat list " % active_feat_id
-        
-            zone_completed = self.check_if_zone_complete(self.ZONES[ZONE_COUNT])
+                        
+            zone_completed = self.check_if_zone_complete(self.ZONES[ZONE_COUNT]["event_count"])
             has_adjacents = False
             adjacents = None
 
@@ -639,7 +652,7 @@ class equicluster:
             
             iteration_count += 1
         
-        
+        ## THIRD: ISLES
         print "\n===============  ISLES ======================"
         iteration_count = 0
         #Used to exclude zones without free adjacents
@@ -675,8 +688,7 @@ class equicluster:
                 if selected_id != None:
                     node_attributes = self.mygraph.node_attributes(selected_id)
                     event_value = node_attributes[0][1]
-                    self.assignFeat2Zone(selected_id, event_value, min_zone)
-                    free_feats.remove(selected_id)
+                    self.assignFeat2Zone(selected_id, event_value, min_zone, free_feats)
             else:
                 if DEBUG: print "Excluded: " + str(not_use_zones)
                 not_use_zones.append(min_zone)
